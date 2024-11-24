@@ -1,20 +1,29 @@
-import { Ai } from '@cloudflare/ai'
-import { AiTextGenerationOutput } from '@cloudflare/ai/dist/ai/tasks/types/tasks'
-import { Hono } from 'hono'
+import { Ai } from '@cloudflare/ai';
+import { AiTextGenerationOutput } from '@cloudflare/ai/dist/ai/tasks/types/tasks';
+import { Hono } from 'hono';
 
 type Bindings = {
-  AI: any
-}
+  AI: any;
+};
 
-type Answer = {
-  response: string
-}
+const app = new Hono<{ Bindings: Bindings }>();
 
-const app = new Hono<{ Bindings: Bindings }>()
+// GET リクエスト: 動作確認用
+app.get('/', (c) => c.text('Hono AI App is running!'));
 
-app.get('/', async (c) => {
-  const ai = new Ai(c.env.AI)
-  const answer:AiTextGenerationOutput = await ai.run('@cf/meta/llama-2-7b-chat-int8', {
+// POST リクエスト: ユーザー入力を受け取る
+app.post('/generate', async (c) => {
+  const body = await c.req.json<{ input: string }>();
+  const userInput = body.input;
+
+  if (!userInput || typeof userInput !== 'string') {
+    return c.json({ error: 'Invalid input' }, 400);
+  }
+
+  const ai = new Ai(c.env.AI);
+
+  // AI にリクエストを送信
+  const answer: AiTextGenerationOutput = await ai.run('@cf/meta/llama-2-7b-chat-int8', {
     messages: [
       {
         role: 'system',
@@ -32,28 +41,30 @@ app.get('/', async (c) => {
       },
       {
         role: 'user',
-        content: `ありがとう`
-      }
-    ]
-  })
+        content: userInput,
+      },
+    ],
+  });
 
-  // Cloudflare側の不具合により正しい型でうまく受け取れないので、JSON.stringifyとparseで無理やり取得
-  const answer_text:Answer = JSON.parse(JSON.stringify(answer))
-  console.log("answer_text.response")
-  console.log(answer_text.response)
-  if (answer_text.response==="") {
-      return c.text(JSON.stringify("うまく生成できませんでした"))
-  } else {
+  // Cloudflare側の不具合により正しい型で受け取れない場合の処理
+  const answerText = JSON.parse(JSON.stringify(answer)) as { response: string };
 
-    const translated_text = await ai.run('@cf/meta/m2m100-1.2b', { text: answer_text.response,
-        source_lang: "english", // defaults to english
-        target_lang: "japanese"
-      }
-    );
-    console.log(translated_text)
-
-    return c.text(JSON.stringify(translated_text))
+  if (!answerText.response) {
+    return c.json({ error: 'AI could not generate a response.' });
   }
-})
 
-export default app
+  // 翻訳処理 (オプション)
+  const translatedText = await ai.run('@cf/meta/m2m100-1.2b', {
+    text: answerText.response,
+    source_lang: 'english',
+    target_lang: 'japanese',
+  });
+
+  return c.json({
+    input: userInput,
+    response: answerText.response,
+    translatedResponse: translatedText,
+  });
+});
+
+export default app;
