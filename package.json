@@ -5,6 +5,8 @@
     "deploy": "wrangler deploy --minify"
   },
   "dependencies": {
+    "@cloudflare/ai": "^1.2.2",
+    "base64-js": "^1.5.1",
     "hono": "^4.6.11"
   },
   "devDependencies": {
